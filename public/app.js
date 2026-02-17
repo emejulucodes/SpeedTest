@@ -881,43 +881,78 @@ async function runDownloadTest(durationMs = 10000) {
 }
 
 // Upload test
-function runUploadTest(sizeMb = 15) {
-  setPhase('Upload', 'Measuring upload speed');
-  logEvent('Starting upload test');
-  setGaugeTheme('upload', 'normal');
-  
+function createUploadBlob(sizeMb) {
   const chunk = new Uint8Array(1024 * 256);
   const chunks = Array.from({ length: Math.ceil((sizeMb * 1024 * 1024) / chunk.length) }, () => chunk);
-  const blob = new Blob(chunks, { type: 'application/octet-stream' });
-  
+  return new Blob(chunks, { type: 'application/octet-stream' });
+}
+
+function runSingleUploadAttempt(sizeMb) {
+  const blob = createUploadBlob(sizeMb);
+
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const start = performance.now();
-    
+
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable) return;
       const now = performance.now();
-      const mbps = (event.loaded * 8) / 1e6 / ((now - start) / 1000);
+      const elapsedSeconds = Math.max((now - start) / 1000, 0.001);
+      const mbps = (event.loaded * 8) / 1e6 / elapsedSeconds;
       updateGauge(mbps, 200);
       dataTransferred.textContent = formatDataSize(event.loaded);
       durationValue.textContent = formatTime((now - start) / 1000);
     };
-    
+
     xhr.onreadystatechange = () => {
       if (xhr.readyState !== 4) return;
       if (xhr.status >= 200 && xhr.status < 300) {
-        const totalSeconds = (performance.now() - start) / 1000;
+        const totalSeconds = Math.max((performance.now() - start) / 1000, 0.001);
         const mbps = (blob.size * 8) / 1e6 / totalSeconds;
-        logEvent(`Upload: ${formatMbps(mbps)} Mbps`);
         resolve({ mbps, bytes: blob.size, duration: totalSeconds });
       } else {
-        reject(new Error('Upload failed'));
+        reject({ status: xhr.status, message: xhr.responseText || 'Upload failed' });
       }
     };
-    
+
+    xhr.onerror = () => {
+      reject({ status: 0, message: 'Network error during upload' });
+    };
+
     xhr.open('POST', '/api/upload');
     xhr.send(blob);
   });
+}
+
+async function runUploadTest(sizeMb = 15) {
+  setPhase('Upload', 'Measuring upload speed');
+  logEvent('Starting upload test');
+  setGaugeTheme('upload', 'normal');
+
+  const retrySizes = [sizeMb, 10, 8, 5, 2]
+    .filter((value, index, array) => value > 0 && array.indexOf(value) === index)
+    .sort((a, b) => b - a);
+
+  let lastError = null;
+  for (const attemptSize of retrySizes) {
+    try {
+      const result = await runSingleUploadAttempt(attemptSize);
+      logEvent(`Upload: ${formatMbps(result.mbps)} Mbps`);
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (error && error.status === 413) {
+        logEvent(`Upload payload too large (${attemptSize} MB), retrying with smaller size`);
+        continue;
+      }
+      break;
+    }
+  }
+
+  if (lastError && lastError.status === 413) {
+    throw new Error('Upload failed: host upload size limit exceeded');
+  }
+  throw new Error('Upload failed');
 }
 
 // Main test function
