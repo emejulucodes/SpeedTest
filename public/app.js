@@ -165,7 +165,12 @@ async function fetchNetworkInfo() {
     if (serverValue) serverValue.textContent = 'Detecting...';
     if (networkValue) networkValue.textContent = 'Detecting...';
 
-    const response = await fetch('/api/network-info', { cache: 'no-store' });
+    const browserPublicIp = await detectBrowserPublicIp();
+    const endpoint = browserPublicIp
+      ? `/api/network-info?clientIp=${encodeURIComponent(browserPublicIp)}`
+      : '/api/network-info';
+
+    const response = await fetch(endpoint, { cache: 'no-store' });
     if (!response.ok) throw new Error('Network info unavailable');
 
     const data = await response.json();
@@ -191,6 +196,27 @@ async function fetchNetworkInfo() {
     if (serverValue) serverValue.textContent = 'Unavailable';
     if (networkValue) networkValue.textContent = 'Unavailable';
   }
+}
+
+async function detectBrowserPublicIp() {
+  const providers = [
+    'https://api64.ipify.org?format=json',
+    'https://api.ipify.org?format=json'
+  ];
+
+  for (const provider of providers) {
+    try {
+      const response = await fetch(provider, { cache: 'no-store' });
+      if (!response.ok) continue;
+      const payload = await response.json();
+      const ip = String(payload?.ip || '').trim();
+      if (ip) return ip;
+    } catch {
+      // Continue to next provider.
+    }
+  }
+
+  return '';
 }
 
 // Three.js 3D Background Animation

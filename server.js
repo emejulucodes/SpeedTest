@@ -301,7 +301,9 @@ app.get("/api/network-info", async (req, res) => {
 
   const client = getClientIp(req);
   const clientIp = client.ip;
-  const lookupIp = clientIp && !isPrivateIp(clientIp) ? clientIp : "";
+  const overrideIp = normalizeIp(req.query.clientIp || "");
+  const overrideIsValid = overrideIp && !isPrivateIp(overrideIp);
+  const lookupIp = overrideIsValid ? overrideIp : (clientIp && !isPrivateIp(clientIp) ? clientIp : "");
   const ipInfo = await fetchIpWhois(lookupIp);
   const bgpLookupIp = ipInfo?.ip && !isPrivateIp(ipInfo.ip) ? ipInfo.ip : lookupIp;
   const bgpInfo = await fetchBgpView(bgpLookupIp);
@@ -329,8 +331,10 @@ app.get("/api/network-info", async (req, res) => {
   const network = resolvedAsn ? `AS${resolvedAsn}${resolvedAsnName ? ` ${resolvedAsnName}` : ""}` : "Unavailable";
 
   const debugPayload = {
-    clientIpSource: client.source,
+    clientIpSource: overrideIsValid ? "query.clientIp" : client.source,
     clientIpSeen: clientIp || null,
+    overrideIp: overrideIp || null,
+    overrideUsed: Boolean(overrideIsValid),
     lookupIp: lookupIp || null,
     resolvedIp,
     headers: {
