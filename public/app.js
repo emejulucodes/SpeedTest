@@ -887,32 +887,37 @@ function createUploadBlob(sizeMb) {
   return new Blob(chunks, { type: 'application/octet-stream' });
 }
 
-function runSingleUploadAttempt(sizeMb) {
+function runSingleUploadAttempt(sizeMb, options = {}) {
+  const { timeoutMs = 0, onProgress = null } = options;
   const blob = createUploadBlob(sizeMb);
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const start = performance.now();
 
+    if (timeoutMs > 0) {
+      xhr.timeout = timeoutMs;
+    }
+
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable) return;
-      const now = performance.now();
-      const elapsedSeconds = Math.max((now - start) / 1000, 0.001);
-      const mbps = (event.loaded * 8) / 1e6 / elapsedSeconds;
-      updateGauge(mbps, 200);
-      dataTransferred.textContent = formatDataSize(event.loaded);
-      durationValue.textContent = formatTime((now - start) / 1000);
+      if (typeof onProgress === 'function') {
+        onProgress(event.loaded, blob.size);
+      }
     };
 
     xhr.onreadystatechange = () => {
       if (xhr.readyState !== 4) return;
       if (xhr.status >= 200 && xhr.status < 300) {
         const totalSeconds = Math.max((performance.now() - start) / 1000, 0.001);
-        const mbps = (blob.size * 8) / 1e6 / totalSeconds;
-        resolve({ mbps, bytes: blob.size, duration: totalSeconds });
+        resolve({ bytes: blob.size, duration: totalSeconds });
       } else {
         reject({ status: xhr.status, message: xhr.responseText || 'Upload failed' });
       }
+    };
+
+    xhr.ontimeout = () => {
+      reject({ status: 408, message: 'Upload attempt timed out' });
     };
 
     xhr.onerror = () => {
@@ -924,34 +929,71 @@ function runSingleUploadAttempt(sizeMb) {
   });
 }
 
-async function runUploadTest(sizeMb = 15) {
+async function runUploadTest(durationMs = 10000, initialChunkMb = 2) {
   setPhase('Upload', 'Measuring upload speed');
   logEvent('Starting upload test');
   setGaugeTheme('upload', 'normal');
 
-  const retrySizes = [sizeMb, 10, 8, 5, 2]
+  const chunkSizesMb = [initialChunkMb, 1, 0.5, 0.25]
     .filter((value, index, array) => value > 0 && array.indexOf(value) === index)
     .sort((a, b) => b - a);
 
+  let sizeIndex = 0;
+  let totalUploadedBytes = 0;
+  const testStart = performance.now();
   let lastError = null;
-  for (const attemptSize of retrySizes) {
+
+  while (performance.now() - testStart < durationMs) {
+    const elapsedMs = performance.now() - testStart;
+    const remainingMs = Math.max(durationMs - elapsedMs, 0);
+    if (remainingMs <= 200) break;
+
+    const attemptSize = chunkSizesMb[sizeIndex] || chunkSizesMb[chunkSizesMb.length - 1];
+
     try {
-      const result = await runSingleUploadAttempt(attemptSize);
-      logEvent(`Upload: ${formatMbps(result.mbps)} Mbps`);
-      return result;
+      const result = await runSingleUploadAttempt(attemptSize, {
+        timeoutMs: Math.max(500, Math.floor(remainingMs)),
+        onProgress: (loadedBytes) => {
+          const now = performance.now();
+          const seconds = Math.max((now - testStart) / 1000, 0.001);
+          const uploadedSoFar = totalUploadedBytes + loadedBytes;
+          const avgMbps = (uploadedSoFar * 8) / 1e6 / seconds;
+          updateGauge(avgMbps, 200);
+          dataTransferred.textContent = formatDataSize(uploadedSoFar);
+          durationValue.textContent = formatTime(seconds);
+        }
+      });
+
+      totalUploadedBytes += result.bytes;
     } catch (error) {
       lastError = error;
       if (error && error.status === 413) {
-        logEvent(`Upload payload too large (${attemptSize} MB), retrying with smaller size`);
+        if (sizeIndex < chunkSizesMb.length - 1) {
+          logEvent(`Upload payload too large (${attemptSize} MB), reducing size`);
+          sizeIndex += 1;
+          continue;
+        }
+      }
+
+      if (error && error.status === 408) {
         continue;
       }
+
       break;
     }
+  }
+
+  const totalSeconds = Math.max((performance.now() - testStart) / 1000, 0.001);
+  if (totalUploadedBytes > 0) {
+    const mbps = (totalUploadedBytes * 8) / 1e6 / totalSeconds;
+    logEvent(`Upload avg: ${formatMbps(mbps)} Mbps`);
+    return { mbps, bytes: totalUploadedBytes, duration: totalSeconds };
   }
 
   if (lastError && lastError.status === 413) {
     throw new Error('Upload failed: host upload size limit exceeded');
   }
+
   throw new Error('Upload failed');
 }
 
@@ -1000,7 +1042,7 @@ async function runTest() {
     await sleep(300);
     
     // Upload test
-    const upload = await runUploadTest(15);
+    const upload = await runUploadTest(10000, 2);
     lastUploadMbps = upload.mbps;
     updateUnitDisplay();
     updateGauge(upload.mbps, 200);
