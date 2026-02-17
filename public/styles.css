@@ -1,0 +1,184 @@
+/* Custom styles for Tailwind integration */
+:root {
+  --primary: #0f172a;
+  --primary-light: #1e293b;
+  --accent-cyan: #06b6d4;
+  --accent-blue: #3b82f6;
+  --accent-purple: #8b5cf6;
+  --accent-green: #10b981;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  background: var(--primary);
+  min-height: 100vh;
+  position: relative;
+}
+
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.3);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(6, 182, 212, 0.3);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(6, 182, 212, 0.5);
+}
+
+/* Three.js Canvas */
+#threejs-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* D3.js Gauge Animations */
+#d3-gauge svg {
+  overflow: visible;
+}
+
+.realtime-chart-container {
+  width: 100%;
+  min-height: 140px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.35);
+  padding: 0.5rem;
+}
+
+/* Event log items animation */
+#eventLog .item {
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  border-left: 2px solid #06b6d4;
+  padding-left: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Button animations */
+button {
+  transition: all 0.3s ease;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Smooth animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.4s ease-out;
+}
+
+/* Grid background effect for cards */
+.grid-bg {
+  background-image: 
+    linear-gradient(rgba(6, 182, 212, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(6, 182, 212, 0.03) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Glow effect for interactive elements */
+.glow-on-hover:hover {
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.4),
+              0 0 40px rgba(6, 182, 212, 0.2);
+}
+
+/* Status indicator pulse */
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+  50% {
+    opacity: 0.8;
+    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+  }
+}
+
+#statusDot {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Gauge responsive sizing */
+.gauge-container-wrapper {
+  width: 100%;
+  max-width: 320px;
+}
+
+.gauge-responsive {
+  width: 100%;
+  height: auto;
+  max-width: 320px;
+}
+
+@media (max-width: 768px) {
+  .gauge-container-wrapper {
+    max-width: 280px;
+  }
+  
+  .gauge-responsive {
+    max-width: 280px;
+  }
+}
+
+@media (max-width: 640px) {
+  .gauge-container-wrapper {
+    max-width: 240px;
+  }
+  
+  .gauge-responsive {
+    max-width: 240px;
+  }
+}
+
+@media (max-width: 480px) {
+  .gauge-container-wrapper {
+    max-width: 200px;
+  }
+  
+  .gauge-responsive {
+    max-width: 200px;
+  }
+}
