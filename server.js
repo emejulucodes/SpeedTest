@@ -49,19 +49,46 @@ const TEST_SERVERS = [
 
 function normalizeIp(ip) {
   if (!ip) return "";
-  const value = String(ip).trim();
+  let value = String(ip).trim();
+
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    value = value.slice(1, -1);
+  }
+
+  const bracketedIpv6Match = value.match(/^\[([^\]]+)\](?::\d+)?$/);
+  if (bracketedIpv6Match) {
+    value = bracketedIpv6Match[1];
+  }
+
+  if (/^\d+\.\d+\.\d+\.\d+:\d+$/.test(value)) {
+    value = value.split(":")[0];
+  }
+
   if (value.startsWith("::ffff:")) {
     return value.slice(7);
   }
+
   return value;
+}
+
+function parseForwardedFor(value) {
+  if (!value) return [];
+  return String(value)
+    .split(",")
+    .map((part) => normalizeIp(part))
+    .filter(Boolean);
 }
 
 function isPrivateIp(ip) {
   const value = normalizeIp(ip);
+  const lower = value.toLowerCase();
 
   if (!value) return true;
-  if (value === "::1" || value === "localhost") return true;
-  if (value.startsWith("fc") || value.startsWith("fd") || value.startsWith("fe80")) return true;
+  if (lower === "::1" || lower === "localhost") return true;
+  if (lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80")) return true;
 
   const parts = value.split(".").map(Number);
   if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
@@ -178,12 +205,49 @@ function pickNearestServer(lat, lon) {
 }
 
 function getClientIp(req) {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (forwarded) {
-    const first = String(forwarded).split(",")[0];
-    return normalizeIp(first);
+  const headerSources = [
+    { key: "x-vercel-forwarded-for", multi: true },
+    { key: "x-real-ip", multi: false },
+    { key: "cf-connecting-ip", multi: false },
+    { key: "fly-client-ip", multi: false },
+    { key: "true-client-ip", multi: false },
+    { key: "x-client-ip", multi: false },
+    { key: "x-forwarded-for", multi: true }
+  ];
+
+  const candidates = [];
+
+  for (const source of headerSources) {
+    const rawValue = req.headers[source.key];
+    if (!rawValue) continue;
+
+    const ips = source.multi
+      ? parseForwardedFor(rawValue)
+      : [normalizeIp(rawValue)].filter(Boolean);
+
+    for (const ip of ips) {
+      candidates.push({ source: source.key, ip });
+    }
   }
-  return normalizeIp(req.ip || req.socket?.remoteAddress || "");
+
+  const reqIp = normalizeIp(req.ip || "");
+  const socketIp = normalizeIp(req.socket?.remoteAddress || "");
+
+  if (reqIp) {
+    candidates.push({ source: "req.ip", ip: reqIp });
+  }
+  if (socketIp) {
+    candidates.push({ source: "req.socket.remoteAddress", ip: socketIp });
+  }
+
+  const publicCandidate = candidates.find((candidate) => !isPrivateIp(candidate.ip));
+  const selected = publicCandidate || candidates[0] || null;
+
+  return {
+    ip: selected?.ip || "",
+    source: selected?.source || null,
+    candidates
+  };
 }
 
 app.get("/api/ping", (req, res) => {
@@ -235,7 +299,8 @@ app.post("/api/upload", (req, res) => {
 app.get("/api/network-info", async (req, res) => {
   res.set("Cache-Control", "no-store");
 
-  const clientIp = getClientIp(req);
+  const client = getClientIp(req);
+  const clientIp = client.ip;
   const lookupIp = clientIp && !isPrivateIp(clientIp) ? clientIp : "";
   const ipInfo = await fetchIpWhois(lookupIp);
   const bgpLookupIp = ipInfo?.ip && !isPrivateIp(ipInfo.ip) ? ipInfo.ip : lookupIp;
@@ -263,6 +328,22 @@ app.get("/api/network-info", async (req, res) => {
   const resolvedAsnName = ipWhoisOrg || bgpAsnName || null;
   const network = resolvedAsn ? `AS${resolvedAsn}${resolvedAsnName ? ` ${resolvedAsnName}` : ""}` : "Unavailable";
 
+  const debugPayload = {
+    clientIpSource: client.source,
+    clientIpSeen: clientIp || null,
+    lookupIp: lookupIp || null,
+    resolvedIp,
+    headers: {
+      xVercelForwardedFor: req.headers["x-vercel-forwarded-for"] || null,
+      xRealIp: req.headers["x-real-ip"] || null,
+      xForwardedFor: req.headers["x-forwarded-for"] || null
+    }
+  };
+
+  if (req.query.debug === "1") {
+    debugPayload.candidates = client.candidates;
+  }
+
   res.json({
     ip: resolvedIp,
     isp: resolvedIsp,
@@ -272,7 +353,8 @@ app.get("/api/network-info", async (req, res) => {
       host: selectedServer.host,
       location: selectedServer.location,
       distanceKm: selectedServer.distanceKm
-    }
+    },
+    debug: debugPayload
   });
 });
 

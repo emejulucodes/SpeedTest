@@ -135,6 +135,10 @@ async function fetchNetworkInfo() {
     if (serverValue) {
       serverValue.textContent = serverLocation ? `${serverName} - ${serverLocation}` : serverName;
     }
+
+    if (data?.debug) {
+      console.debug('Network debug', data.debug);
+    }
   } catch {
     if (ipValue) ipValue.textContent = 'Unavailable';
     if (ispValue) ispValue.textContent = 'Unavailable';
