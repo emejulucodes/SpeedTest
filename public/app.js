@@ -34,6 +34,8 @@ let lastUploadMbps = 0;
 let testHistory = JSON.parse(localStorage.getItem('speedTestHistory') || '[]');
 let realtimeDiffData = [];
 let previousRealtimeSpeed = null;
+let connectionListenerBound = false;
+let connectionChangeListenerBound = false;
 
 let realtimeDiffSvg;
 let realtimeDiffLine;
@@ -103,12 +105,56 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Detect connection type
 function detectConnectionType() {
-  if (navigator.connection) {
-    const conn = navigator.connection;
-    const effectiveType = conn.effectiveType || 'unknown';
-    connectionType.textContent = effectiveType.toUpperCase();
+  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+
+  if (!connectionListenerBound) {
+    window.addEventListener('online', detectConnectionType);
+    window.addEventListener('offline', detectConnectionType);
+    connectionListenerBound = true;
+  }
+
+  if (!conn) {
+    connectionType.textContent = navigator.onLine ? 'Online' : 'Offline';
+    return;
+  }
+
+  const typeMap = {
+    wifi: 'Wi-Fi',
+    ethernet: 'Ethernet',
+    cellular: 'Cellular',
+    bluetooth: 'Bluetooth',
+    wimax: 'WiMAX',
+    none: 'Offline',
+    other: 'Other'
+  };
+
+  const effectiveTypeMap = {
+    'slow-2g': 'Slow 2G',
+    '2g': '2G',
+    '3g': '3G',
+    '4g': '4G'
+  };
+
+  const rawType = typeof conn.type === 'string' ? conn.type.toLowerCase() : '';
+  const transportLabel = typeMap[rawType] || '';
+  const rawEffectiveType = typeof conn.effectiveType === 'string' ? conn.effectiveType.toLowerCase() : '';
+  const qualityLabel = effectiveTypeMap[rawEffectiveType] || '';
+
+  if (transportLabel === 'Offline' || !navigator.onLine) {
+    connectionType.textContent = 'Offline';
+  } else if (transportLabel && qualityLabel) {
+    connectionType.textContent = `${transportLabel} • ${qualityLabel}`;
+  } else if (transportLabel) {
+    connectionType.textContent = transportLabel;
+  } else if (qualityLabel) {
+    connectionType.textContent = qualityLabel;
   } else {
-    connectionType.textContent = 'Unknown';
+    connectionType.textContent = 'Online';
+  }
+
+  if (!connectionChangeListenerBound && typeof conn.addEventListener === 'function') {
+    conn.addEventListener('change', detectConnectionType);
+    connectionChangeListenerBound = true;
   }
 }
 
